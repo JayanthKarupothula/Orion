@@ -1,0 +1,143 @@
+#!groovy
+pipeline {
+    agent any
+    tools {nodejs "NodeJS 16.13.2"}
+        
+    stages {               
+      stage ('set build id') {
+          steps{
+              script{
+                def packageVersion = getPackageJsonVersion()
+                echo "package version is ${packageVersion}"          
+                def gitCommitId = sh(returnStdout: true, script: 'git rev-parse --short=10 HEAD').trim()
+                def branchName = "${BRANCH_NAME}"
+                echo "Branch name is: ${branchName}"
+                if (branchName && (branchName.contains("feature") || branchName.contains("develop"))) {
+                    echo "Build type is snapshot"
+                    currentBuild.displayName = "${packageVersion}-SNAPSHOT-${gitCommitId}-${env.BUILD_ID}"
+                }    
+                else if (branchName && (branchName.contains("release"))) {
+                    echo "Build type is release"
+                    currentBuild.displayName = "${packageVersion}-${gitCommitId}-${env.BUILD_ID}"
+                }
+                else {
+                    echo "wrong branch type, setting SNAPSHOT build"
+                    currentBuild.displayName = "${packageVersion}-SNAPSHOT-${gitCommitId}-${env.BUILD_ID}"
+                }              
+            }
+          }
+      }
+	  stage ('Set Build description') {
+             steps {
+                 script {
+                    wrap([$class: 'BuildUser']) {
+                          def user = env.BUILD_USER_ID
+                          currentBuild.description = "Build triggered by ${user}"
+                  }
+             }
+           }
+       }     
+        stage('Build Image') {
+            steps {
+                withCredentials([usernamePassword(credentialsId: '8c043e82-07d5-4f0a-9c56-feda1e55ae2e', passwordVariable: 'JENKINS_PASSWORD', usernameVariable: 'JENKINS_USER')]) {
+                withCredentials([usernameColonPassword(credentialsId: '8c043e82-07d5-4f0a-9c56-feda1e55ae2e', variable: 'JENKINS_USER_PASSWORD')]) { 
+                withCredentials([usernameColonPassword(credentialsId: '8c043e82-07d5-4f0a-9c56-feda1e55ae2e', variable: 'JFROG_CREDS')]) {    
+                sh '''
+                        #! /bin/bash
+                        export buildid=${BUILD_DISPLAY_NAME}
+                        export APP_VERSION="${buildid}"
+                        export APP_GROUP="com/charter/nemesis"
+                        export APP_NAME="${TENANT}-orion-frontend"
+                        export JENKINS_APP_NAME="${APP_GROUP}-${APP_NAME}"
+                        export DEFAULT_DOCKER_REGISTRY="docker.corp.chartercom.com"
+                        cd ${WORKSPACE}
+                        echo "using configs for tenant ${TENANT}"
+                        mv configs/${TENANT}/.env.${Deployto} configs/${TENANT}/.env
+                        cp -rf configs/${TENANT}/.env ${WORKSPACE}/.env
+                        cat ${WORKSPACE}/.env
+
+                        printf "@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@#       @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@@@@@@@@@@@@                             @@@@@@@@@@@@@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@@@@@@@                                      (@@@@@@@@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@@@@                                             @@@@@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@                                                   @@@@@@@@@@@@@@\n@@@@@@@@@@@@@                   *****************                   @@@@@@@@@@@@\n@@@@@@@@@@@                ************///***********,                @@@@@@@@@@\n@@@@@@@@@@              *******///////////////////******               @@@@@@@@@\n@@@@@@@@&             *****/////*****************/////****,             @@@@@@@@\n@@@@@@@,            ,****////***********************////****             @@@@@@@\n@@@@@@@            ****///*****************************///***,            @@@@@@\n@@@@@@            ****///*******************************///***             @@@@@\n@@@@@@            ***///*********************************///***            @@@@@\n@@@@@@           ****//***********************************//***            @@@@@\n@@@@@@           ***///***********  Orion  ***************//***,           @@@@@\n@@@@@@           ,***//***********************************//***            @@@@@\n@@@@@@            ***///*********************************///***            @@@@@\n@@@@@@            ****///*******************************///***             @@@@@\n@@@@@@@            ****///*****************************///***,            @@@@@@\n@@@@@@@,             ****////***********************////****             @@@@@@@\n@@@@@@@@&             *****/////*****************/////****,             @@@@@@@@\n@@@@@@@@@@              *******///////////////////******               @@@@@@@@@\n@@@@@@@@@@@                *************/************                 @@@@@@@@@@\n@@@@@@@@@@@@@                   *****************                   @@@@@@@@@@@@\n@@@@@@@@@@@@@@@                                                   @@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@@@@                                             @@@@@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@@@@@@@#                                     @@@@@@@@@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@@@@@@@@@@@@#                           @@@@@@@@@@@@@@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@     @@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@\n"
+
+                        echo "----  Environment Information ----"
+                        echo "NPM Version: "
+                        npm --version
+                        echo "Node Version: "
+                        node --version
+                        echo "OS Version: "
+                        cat /etc/os-release
+
+                        echo "----  Next Install Globally ----"
+                        #npm i next -g
+
+                        echo "----  NPM Install Packages ----"
+                        npm ci --production
+                        echo "----  NPM Install Missing Types ----"
+                        #npm i --save-dev @types/lodash
+                        npm i --save-dev @types/uuid
+                        echo "---- 1 what is the types after 1 ---"
+                        npm ls
+                        #echo "---- Security Audit ----"
+                        #npm audit --production --audit-level=moderate --force
+
+                        echo "---- ESLint checking ----"
+                        #npm run lint
+
+                        #echo "---- Unit Tests ----"
+                        #npm run test
+
+                        echo "---- Orion Build ----"
+                        #disables NEXT telemetry notice
+                        npx next telemetry disable
+                        npm run build
+
+                        echo "---- Tar.Gz Build ----"
+                        tar -czvf ${APP_NAME}-${APP_VERSION}.tar.gz .next dist runtimeConfig.js jest.config.js jest.setup.js next.config.js src/tests src/pages src/entities e2eJest.config.js e2eJest.setup.js server/camunda-dmn-simulator.jar
+                        REPO_TARGET="libs-omni-channel-back-office-local-release"
+                        ARTIFACTORY_URL=https://artifactory.corp.chartercom.com
+                        #mkdir ${WORKSPACE}/build/
+                        if [[ ${APP_VERSION} == *"SNAPSHOT"* ]]; then
+                            REPO_TARGET="libs-omni-channel-back-office-local-snapshot"
+                        fi
+                        REPO_URL=${ARTIFACTORY_URL}/${REPO_TARGET}/${APP_NAME}/${APP_VERSION}/${APP_NAME}-${APP_VERSION}.tar.gz
+                        curl --request PUT   --silent --fail --insecure --output /dev/null  --user ${JENKINS_USER_PASSWORD} --upload-file ${WORKSPACE}/${APP_NAME}-${APP_VERSION}.tar.gz ${REPO_URL}
+
+                        echo $APP_VERSION
+                        echo $REPO_URL
+                        ################################################################################
+                        # Build, push and delete docker image from target jar and local Dockerfile
+                        ################################################################################
+                        mv ${APP_NAME}-${APP_VERSION}.tar.gz app.tar.gz
+                        DOCKER_REG_REPO_TAG="${DEFAULT_DOCKER_REGISTRY}/${APP_GROUP}/${APP_NAME}:${APP_VERSION}"
+                        docker build -t ${DOCKER_REG_REPO_TAG} ${WORKSPACE}/. --build-arg APP_SRC=app.tar.gz --build-arg TENANT=${TENANT}
+                        echo "Pushing ${DOCKER_REG_REPO_TAG}"
+                        docker push "${DOCKER_REG_REPO_TAG}"
+                        docker rmi "${DOCKER_REG_REPO_TAG}"                        
+                    '''
+                 }
+                 }   
+                }
+            }
+        }
+        stage('Auto Deploy') {
+            when { expression { params.Deployto != 'none'} }
+            steps {
+                    script{
+                        def tenantname = env.TENANT
+                        def buidjobname = "ceis/orion/nemesis-orion-ui-caas-2.0/" + tenantname + "-orion-ui-helm-deploy"
+                        echo "build job name is ${buidjobname}"
+                    build job: buidjobname, 
+                    parameters: [string(name: 'ChartVersion', value: 'latest'),
+                                 string(name: 'ImageVersion', value: "${BUILD_DISPLAY_NAME}"), 
+                                 string(name: 'DeployEnv', value: "${Deployto}")]
+                    }
+            }
+        }                                
+      }
+    }
+
+
+def getPackageJsonVersion(){
+    def packageJsonContent = readFile(file: 'package.json').trim()
+    def packageJson = readJSON file: 'package.json'
+    return packageJson?.version ?: "1.0.0"
+}
