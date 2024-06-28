@@ -1,0 +1,69 @@
+{
+  "_id": {
+    "$oid": "645e7199bcc310776a2f1870"
+  },
+  "description": "ORION GET EnvConfig DeploymentHistory by versionId",
+  "name": "Orion-GET-EnvConfigDeploymentHistory-by-versionId",
+  "routeDefinitionId": "31014ee1-3997-4684-9d80-60e266a03726",
+  "routeMatch": {
+    "urlRegEx": "/orion-server(|/(v|V)1.2)/envConfig-deployment-history/versionId",
+    "httpVerb": "POST",
+    "priority": 1,
+    "queryParams": {},
+    "pathParams": {},
+    "headerParams": {}
+  },
+  "version": "1",
+  "waypointDefinition": [
+    {
+      "description": "transformation",
+      "order": 1,
+      "fullyQualifiedClassName": "com.charter.nemesis.runtime.waypoints.JSONTransformWaypoint",
+      "waypointConfiguration": {
+        "spec": "[{\"operation\":\"shift\",\"spec\":{\"body\":{\"ENVIRONMENTCONFIGVERSIONID\":\"db\\\\.query\\\\.param\\\\.1\",\"ID\":\"db\\\\.query\\\\.param\\\\.2\"}}},{\"operation\":\"shift\",\"spec\":{\"db\\\\.query\\\\.param\\\\.1\":\"body.db\\\\.query\\\\.param\\\\.1\",\"db\\\\.query\\\\.param\\\\.2\":\"body.db\\\\.query\\\\.param\\\\.2\"}}]"
+      },
+      "id": "2248ebcd-e56a-4e2c-946b-91a1a872d1ef"
+    },
+    {
+      "description": "DB param 1",
+      "order": 2,
+      "fullyQualifiedClassName": "com.charter.nemesis.runtime.waypoints.JSONTokenGenerationWaypoint",
+      "waypointConfiguration": {
+        "token.name": "db.query.param.1",
+        "token.value.json.path": "/body/db.query.param.1"
+      },
+      "id": "14dd73dd-c864-4741-a078-44f39bbf95bc"
+    },
+    {
+      "description": "DB param 2",
+      "order": 3,
+      "fullyQualifiedClassName": "com.charter.nemesis.runtime.waypoints.JSONTokenGenerationWaypoint",
+      "waypointConfiguration": {
+        "token.name": "db.query.param.2",
+        "token.value.json.path": "/body/db.query.param.2"
+      },
+      "id": "e0d3549a-90c0-4f68-8322-43c0906ebf4e"
+    },
+    {
+      "description": "DB",
+      "order": 4,
+      "fullyQualifiedClassName": "com.charter.nemesis.runtime.waypoints.OracleDBWaypoint",
+      "waypointConfiguration": {
+        "db.query.select.statement": true,
+        "db.query": "SELECT ch.* FROM EnvironmentConfigDeploymentHistory ch JOIN Deployments d ON ch.deploymentId = d.id JOIN DeploymentRequest dr ON d.deploymentRequestId = dr.id JOIN TenantEnvironment te ON dr.tenantEnvironmentId = te.id JOIN EnvironmentConfigVersion cv ON ch.environmentConfigVersionId = cv.id WHERE cv.id = ? AND te.id = ? ORDER BY ch.createddate DESC",
+        "db.query.params": "{}"
+      },
+      "id": "277c4ffe-c2b0-44d4-816b-e56c3d9b968b"
+    },
+    {
+      "description": "send to camunda as response transformation",
+      "order": 5,
+      "fullyQualifiedClassName": "com.charter.nemesis.runtime.waypoints.JSONTransformWaypoint",
+      "waypointConfiguration": {
+        "spec": "[{\"operation\":\"shift\",\"spec\":{\"@\":\"body\"}},{\"operation\":\"default\",\"spec\":{\"statusCode\":200}},{\"operation\":\"default\",\"spec\":{\"Return-Content-Type\":\"application/json\"}}]",
+        "result.key": ""
+      },
+      "id": "64c66f6b-f173-4bfa-bf91-762925d52a03"
+    }
+  ]
+}
